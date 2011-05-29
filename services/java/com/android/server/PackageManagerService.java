@@ -68,7 +68,6 @@ import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
 import android.content.pm.Signature;
 import android.database.ContentObserver;
-
 import android.net.Uri;
 import android.os.Binder;
 import android.os.Build;
@@ -834,7 +833,6 @@ class PackageManagerService extends IPackageManager.Stub {
             readPermissions();
 
             mRestoredSettings = mSettings.readLP();
-
             long startTime = SystemClock.uptimeMillis();
 
             EventLog.writeEvent(EventLogTags.BOOT_PROGRESS_PMS_SYSTEM_SCAN_START,
@@ -1708,13 +1706,6 @@ class PackageManagerService extends IPackageManager.Stub {
         return res == 1;
     }
 
-    private int checkRevoked(String permName, GrantedPermissions gp, int callingUid, int checkedUid) {
-        if (callingUid != checkedUid && gp.revokedPermissions.contains(permName)) {
-            return PackageManager.PERMISSION_DENIED;
-        }
-        return PackageManager.PERMISSION_GRANTED;
-    }
-
     public int checkPermission(String permName, String pkgName) {
         synchronized (mPackages) {
             PackageParser.Package p = mPackages.get(pkgName);
@@ -1722,15 +1713,19 @@ class PackageManagerService extends IPackageManager.Stub {
                 PackageSetting ps = (PackageSetting)p.mExtras;
                 int uid = Binder.getCallingUid();
                 if (ps.sharedUser != null) {
-                    if (ps.sharedUser.grantedPermissions.contains(permName)) {
-                        return mIsPermManagementEnabled ?
-                                checkRevoked(permName, ps.sharedUser, uid, ps.sharedUser.userId)
-                                : PackageManager.PERMISSION_GRANTED;
+                    final HashSet<String> perms = mIsPermManagementEnabled && uid != ps.sharedUser.userId ?
+                            ps.sharedUser.effectivePermissions
+                            : ps.sharedUser.grantedPermissions;
+                    if (perms.contains(permName)) {
+                        return PackageManager.PERMISSION_GRANTED;
                     }
-                } else if (ps.grantedPermissions.contains(permName)) {
-                    return mIsPermManagementEnabled ?
-                            checkRevoked(permName, ps, uid, ps.userId)
-                            : PackageManager.PERMISSION_GRANTED;
+                } else {
+                    final HashSet<String> perms = mIsPermManagementEnabled && uid != ps.userId ?
+                            ps.effectivePermissions
+                            : ps.grantedPermissions;
+                    if (perms.contains(permName)) {
+                        return PackageManager.PERMISSION_GRANTED;
+                    }
                 }
             }
         }
@@ -1742,9 +1737,11 @@ class PackageManagerService extends IPackageManager.Stub {
             Object obj = mSettings.getUserIdLP(uid);
             if (obj != null) {
                 GrantedPermissions gp = (GrantedPermissions)obj;
-                if (gp.grantedPermissions.contains(permName)) {
-                    return mIsPermManagementEnabled ? 
-                            checkRevoked(permName, gp, -2, -1) : PackageManager.PERMISSION_GRANTED;
+                final HashSet<String> perms = mIsPermManagementEnabled ?
+                        gp.effectivePermissions
+                        : gp.grantedPermissions;
+                if (perms.contains(permName)) {
+                    return PackageManager.PERMISSION_GRANTED;
                 }
             } else {
                 HashSet<String> perms = mSystemPermissions.get(uid);
@@ -3977,23 +3974,24 @@ class PackageManagerService extends IPackageManager.Stub {
             for (PackageParser.Package pkg : mPackages.values()) {
                 if (pkg != pkgInfo) {
                     grantPermissionsLP(pkg, replaceAll);
-                    updateRevokedGids(pkg);
+                    updateRevokeInfo(pkg);
                 }
             }
         }
 
         if (pkgInfo != null) {
             grantPermissionsLP(pkgInfo, replace);
-            updateRevokedGids(pkgInfo);
+            updateRevokeInfo(pkgInfo);
         }
     }
 
-    private void updateRevokedGids(PackageParser.Package pkg) {
+    private void updateRevokeInfo(PackageParser.Package pkg) {
         final PackageSetting ps = (PackageSetting)pkg.mExtras;
         if (ps == null) {
             return;
         }
         final GrantedPermissions gp = ps.sharedUser != null ? ps.sharedUser : ps;
+        updateEffectivePermissions(gp);
         updateRevokedGids(gp);
     }
 
@@ -4736,10 +4734,17 @@ class PackageManagerService extends IPackageManager.Stub {
                     gp.revokedPermissions.addAll(Arrays.asList(perms));
                     gp.privacyModePermissions.removeAll(gp.revokedPermissions);
                     updateRevokedGids(gp);
+                    updateEffectivePermissions(gp);
                     mSettings.writeLP();
                 }
             }
         }
+    }
+
+    private static void updateEffectivePermissions(final GrantedPermissions gp) {
+        gp.effectivePermissions.clear();
+        gp.effectivePermissions.addAll(gp.grantedPermissions);
+        gp.effectivePermissions.removeAll(gp.revokedPermissions);
     }
 
     private void updateRevokedGids(final GrantedPermissions gp) {
@@ -7987,6 +7992,8 @@ class PackageManagerService extends IPackageManager.Stub {
 
         HashSet<String> revokedPermissions = new HashSet<String>();
 
+        HashSet<String> effectivePermissions = new HashSet<String>();
+
         int[] revokedGids;
 
         HashSet<String> privacyModePermissions = new HashSet<String>();
@@ -7999,6 +8006,7 @@ class PackageManagerService extends IPackageManager.Stub {
             pkgFlags = base.pkgFlags;
             grantedPermissions = (HashSet<String>) base.grantedPermissions.clone();
             revokedPermissions = (HashSet<String>) base.revokedPermissions.clone();
+            effectivePermissions = (HashSet<String>) base.effectivePermissions.clone();
             privacyModePermissions = (HashSet<String>) base.privacyModePermissions.clone();
 
             if (base.gids != null) {
@@ -8132,6 +8140,8 @@ class PackageManagerService extends IPackageManager.Stub {
             grantedPermissions = base.grantedPermissions;
             gids = base.gids;
             revokedPermissions = base.revokedPermissions;
+            effectivePermissions = base.effectivePermissions;
+
             revokedGids = base.revokedGids;
             privacyModePermissions = base.privacyModePermissions;
 
@@ -8609,6 +8619,9 @@ class PackageManagerService extends IPackageManager.Stub {
                             p.userId = dis.userId;
                             // Clone permissions
                             p.grantedPermissions = new HashSet<String>(dis.grantedPermissions);
+                            p.revokedPermissions = new HashSet<String>(dis.revokedPermissions);
+                            p.privacyModePermissions = new HashSet<String>(dis.privacyModePermissions);
+                            updateEffectivePermissions(p);
                             // Clone component info
                             p.disabledComponents = new HashSet<String>(dis.disabledComponents);
                             p.enabledComponents = new HashSet<String>(dis.enabledComponents);
