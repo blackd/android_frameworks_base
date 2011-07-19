@@ -45,6 +45,7 @@ import android.os.Handler;
 import android.os.Message;
 import android.os.RemoteException;
 import android.os.storage.StorageManager;
+import android.os.SystemProperties;
 import android.provider.Settings;
 import android.telephony.PhoneStateListener;
 import android.telephony.ServiceState;
@@ -584,6 +585,7 @@ public class StatusBarPolicy {
     };
 
     private boolean mShowCmBattery;
+    private boolean mCmBatteryStatus;
 
     class SettingsObserver extends ContentObserver {
         SettingsObserver(Handler handler) {
@@ -773,8 +775,11 @@ public class StatusBarPolicy {
     private final void updateBattery(Intent intent) {
         final int id = intent.getIntExtra("icon-small", 0);
         int level = intent.getIntExtra("level", 0);
-        mService.setIcon("battery", id, level);
-        mService.setIconVisibility("battery", !mShowCmBattery);
+        if(!mShowCmBattery || mCmBatteryStatus != mShowCmBattery) {
+                mService.setIcon("battery", id, level);
+                mService.setIconVisibility("battery", !mShowCmBattery);
+                mCmBatteryStatus = mShowCmBattery;
+        }
 
         boolean plugged = intent.getIntExtra("plugged", 0) != 0;
         level = intent.getIntExtra("level", -1);
@@ -1138,13 +1143,25 @@ public class StatusBarPolicy {
             // If 3G(EV) and 1x network are available than 3G should be
             // displayed, displayed RSSI should be from the EV side.
             // If a voice call is made then RSSI should switch to 1x.
-            if ((mPhoneState == TelephonyManager.CALL_STATE_IDLE) && isEvdo()){
-                iconLevel = getEvdoLevel();
-                if (false) {
-                    Slog.d(TAG, "use Evdo level=" + iconLevel + " to replace Cdma Level=" + getCdmaLevel());
-                }
+
+            // Samsung CDMA devices handle signal strength display differently
+            // relying only on cdmaDbm - thanks Adr0it for the assistance here
+            if (SystemProperties.get("ro.ril.samsung_cdma").equals("true")) {
+                final int cdmaDbm = mSignalStrength.getCdmaDbm();
+                if (cdmaDbm >= -75) iconLevel = 4;
+                else if (cdmaDbm >= -85)  iconLevel = 3;
+                else if (cdmaDbm >= -95)  iconLevel = 2;
+                else if (cdmaDbm >= -100) iconLevel = 1;
+                else iconLevel = 0;
             } else {
-                iconLevel = getCdmaLevel();
+                if ((mPhoneState == TelephonyManager.CALL_STATE_IDLE) && isEvdo()){
+                    iconLevel = getEvdoLevel();
+                    if (false) {
+                        Slog.d(TAG, "use Evdo level=" + iconLevel + " to replace Cdma Level=" + getCdmaLevel());
+                    }
+                } else {
+                    iconLevel = getCdmaLevel();
+                }
             }
         }
         mPhoneSignalIconId = iconList[iconLevel];
@@ -1555,6 +1572,7 @@ public class StatusBarPolicy {
 
         mShowCmBattery = (Settings.System.getInt(resolver,
                 Settings.System.STATUS_BAR_CM_BATTERY, 0) == 1);
+        mCmBatteryStatus = !mShowCmBattery;
         mService.setIconVisibility("battery", !mShowCmBattery);
     }
 }
