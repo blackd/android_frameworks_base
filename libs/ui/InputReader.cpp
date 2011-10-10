@@ -342,7 +342,19 @@ InputDevice* InputReader::createDevice(int32_t deviceId, const String8& name, ui
 
     // Touchscreen-like devices.
     if (classes & INPUT_DEVICE_CLASS_TOUCHSCREEN_MT) {
+#ifdef ZEUS_TOUCHPADS
+        /* According to the Sony Ericsson SDK, the jogdials should be interpreted
+         * as an AINPUT_SOURCE_TOUCHPAD. According to getSources() above, a
+         * touchpad is simply a device with a negative associated display id.
+         */
+        if (deviceId == 0x10004) {
+            device->addMapper(new MultiTouchInputMapper(device, -1));
+        } else {
+            device->addMapper(new MultiTouchInputMapper(device, associatedDisplayId));
+        }
+#else
         device->addMapper(new MultiTouchInputMapper(device, associatedDisplayId));
+#endif
     } else if (classes & INPUT_DEVICE_CLASS_TOUCHSCREEN) {
         device->addMapper(new SingleTouchInputMapper(device, associatedDisplayId));
     }
@@ -551,10 +563,16 @@ int32_t InputReader::getState(int32_t deviceId, uint32_t sourceMask, int32_t cod
             size_t numDevices = mDevices.size();
             for (size_t i = 0; i < numDevices; i++) {
                 InputDevice* device = mDevices.valueAt(i);
+                InputDeviceInfo deviceInfo;
+                bool isKeyboard = false;
+                device->getDeviceInfo( &deviceInfo );
+                isKeyboard = (deviceInfo.getKeyboardType() == AINPUT_KEYBOARD_TYPE_ALPHABETIC);
                 if (! device->isIgnored() && sourcesMatchMask(device->getSources(), sourceMask)) {
                     int32_t state = (device->*getStateFunc)(sourceMask, code);
-                    if (state > result) {
+                    if (isKeyboard && state > result) {
                         result = state;
+                    } else if ( state >= AKEY_STATE_DOWN ) {
+                        return state;
                     }
                 }
             }
