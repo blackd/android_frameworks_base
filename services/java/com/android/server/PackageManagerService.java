@@ -4833,6 +4833,10 @@ class PackageManagerService extends IPackageManager.Stub {
             final BasePermission bp = mSettings.mPermissions.get(perm);
             gp.revokedGids = appendInts(gp.revokedGids, bp.gids);
         }
+        for (String perm: gp.privacyModePermissions) {
+            final BasePermission bp = mSettings.mPermissions.get(perm);
+            gp.revokedGids = appendInts(gp.revokedGids, bp.gids);
+        }
     }
 
     public void setPrivacyModePermissions(final String pkgName, final String[] perms) {
@@ -10728,9 +10732,6 @@ class PackageManagerService extends IPackageManager.Stub {
    }
 
    public int pffCheckPermission(String permName, String pkgName) {
-       mContext.enforceCallingOrSelfPermission(
-               android.Manifest.permission.PFF_FREQUENCY, null);
-
        synchronized (mPackages) {
            if (mIsPermManagementEnabled) {
                PackageParser.Package p = mPackages.get(pkgName);
@@ -10757,8 +10758,6 @@ class PackageManagerService extends IPackageManager.Stub {
    }
 
    public int pffCheckUidPermission(String permName, int uid) {
-       mContext.enforceCallingOrSelfPermission(
-               android.Manifest.permission.PFF_FREQUENCY, null);
        synchronized (mPackages) {
            if (mIsPermManagementEnabled) {
                Object obj = mSettings.getUserIdLP(uid);
