@@ -23,6 +23,7 @@ import android.os.Looper;
 import android.os.Message;
 import android.os.ServiceManager;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -234,10 +235,12 @@ public abstract class IccPhoneBookInterfaceManager extends IIccPhoneBook.Stub {
      * @return List of AdnRecord
      */
     public List<AdnRecord> getAdnRecordsInEf(int efid) {
-
-        if (phone.getContext().checkCallingOrSelfPermission(
-                android.Manifest.permission.READ_CONTACTS)
-                != PackageManager.PERMISSION_GRANTED) {
+        int perm = phone.getContext().pffCheckCallingOrSelfPermission(
+                android.Manifest.permission.READ_CONTACTS);
+        if (perm == PackageManager.PERMISSION_PRIVACY_MODE) {
+            return new ArrayList<AdnRecord>();
+        }
+        else if (perm != PackageManager.PERMISSION_GRANTED) {
             throw new SecurityException(
                     "Requires android.permission.READ_CONTACTS permission");
         }
