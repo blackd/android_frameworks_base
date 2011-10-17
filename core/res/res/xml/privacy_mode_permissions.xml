@@ -7,5 +7,7 @@ If you add anything here make sure that the implementation DO support protecting
     <item name="android.permission.READ_PHONE_STATE" />"
     <item name="android.permission.READ_LOGS" />"
     <item name="com.android.browser.permission.READ_HISTORY_BOOKMARKS" />"
+    <item name="com.android.browser.permission.WRITE_HISTORY_BOOKMARKS" />"
     <item name="android.permission.READ_CONTACTS" />"
+    <item name="android.permission.WRITE_CONTACTS" />"
 </protected-perms>

@@ -4852,6 +4852,7 @@ class PackageManagerService extends IPackageManager.Stub {
                     gp.privacyModePermissions.addAll(Arrays.asList(perms));
                     gp.revokedPermissions.removeAll(gp.privacyModePermissions);
                     updateRevokedGids(gp);
+                    updateEffectivePermissions(gp);
                     mSettings.writeLP();
                 }
             }
